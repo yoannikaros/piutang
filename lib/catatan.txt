@@ -1,0 +1,90 @@
+PRAGMA foreign_keys = ON;
+
+--------------------------------------------------------------------
+-- USERS : Admin & Karyawan
+--------------------------------------------------------------------
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('admin', 'karyawan')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_login_at TEXT
+);
+
+--------------------------------------------------------------------
+-- CUSTOMERS : Daftar orang yang berhutang
+--------------------------------------------------------------------
+CREATE TABLE customers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    phone TEXT,
+    notes TEXT,
+    created_by_user_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    is_active INTEGER NOT NULL DEFAULT 1,
+    FOREIGN KEY(created_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+--------------------------------------------------------------------
+-- PRODUCTS : Daftar barang & harga (bisa diedit)
+--------------------------------------------------------------------
+CREATE TABLE products (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    price NUMERIC NOT NULL,
+    unit TEXT,
+    notes TEXT,
+    created_by_user_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    is_active INTEGER NOT NULL DEFAULT 1,
+    FOREIGN KEY(created_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+--------------------------------------------------------------------
+-- TRANSACTIONS : Hutang per tanggal (pelanggan mengambil barang)
+--------------------------------------------------------------------
+CREATE TABLE transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    taken_by_user_id INTEGER,
+    taken_at TEXT NOT NULL DEFAULT (datetime('now')),
+    notes TEXT,
+    is_reset INTEGER NOT NULL DEFAULT 0,
+    reset_by_user_id INTEGER,
+    reset_at TEXT,
+    FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+    FOREIGN KEY(taken_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY(reset_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+--------------------------------------------------------------------
+-- TRANSACTION_LINES : Barang yang diambil, jumlah, dan harga saat itu
+--------------------------------------------------------------------
+CREATE TABLE transaction_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    transaction_id INTEGER NOT NULL,
+    product_id INTEGER NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    unit_price NUMERIC NOT NULL,
+    line_total NUMERIC NOT NULL,
+    notes TEXT,
+    FOREIGN KEY(transaction_id) REFERENCES transactions(id) ON DELETE CASCADE,
+    FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE RESTRICT
+);
+
+--------------------------------------------------------------------
+-- AUDIT_LOGS : Log aksi penting (hapus, reset, ubah harga, dll)
+--------------------------------------------------------------------
+CREATE TABLE audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    user_id INTEGER,
+    action TEXT NOT NULL,
+    object_type TEXT,
+    object_id INTEGER,
+    detail TEXT,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
