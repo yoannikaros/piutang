@@ -20,8 +20,11 @@ class CustomerTransactionPage extends StatefulWidget {
 class _CustomerTransactionPageState extends State<CustomerTransactionPage> {
   final DatabaseHelper _db = DatabaseHelper.instance;
   List<Transaction> _transactions = [];
+  List<Transaction> _allTransactions = []; // Store all transactions
   bool _isLoading = true;
   double _totalDebt = 0.0;
+  DateTime? _startDate;
+  DateTime? _endDate;
 
   final NumberFormat _currencyFormat = NumberFormat.currency(
     locale: 'id_ID',
@@ -31,6 +34,8 @@ class _CustomerTransactionPageState extends State<CustomerTransactionPage> {
 
   final DateFormat _dateFormat = DateFormat('dd MMM yyyy, HH:mm', 'id_ID');
   final DateFormat _shortDateFormat = DateFormat('dd MMM HH:mm', 'id_ID');
+  final DateFormat _timeOnlyFormat = DateFormat('HH:mm', 'id_ID');
+  final DateFormat _displayDateFormat = DateFormat('dd MMM yyyy', 'id_ID');
 
   @override
   void initState() {
@@ -44,14 +49,44 @@ class _CustomerTransactionPageState extends State<CustomerTransactionPage> {
       final transactions = await _db.getCustomerTransactions(
         widget.customer.id!,
       );
+
+      // Store all transactions
+      _allTransactions = transactions;
+
+      // Apply date filter if set
+      List<Transaction> filteredTransactions = transactions;
+      if (_startDate != null && _endDate != null) {
+        filteredTransactions =
+            transactions.where((txn) {
+              final txnDate = DateTime(
+                txn.takenAt.year,
+                txn.takenAt.month,
+                txn.takenAt.day,
+              );
+              final start = DateTime(
+                _startDate!.year,
+                _startDate!.month,
+                _startDate!.day,
+              );
+              final end = DateTime(
+                _endDate!.year,
+                _endDate!.month,
+                _endDate!.day,
+              );
+              return (txnDate.isAtSameMomentAs(start) ||
+                      txnDate.isAfter(start)) &&
+                  (txnDate.isAtSameMomentAs(end) || txnDate.isBefore(end));
+            }).toList();
+      }
+
       double total = 0.0;
-      for (var txn in transactions) {
+      for (var txn in filteredTransactions) {
         if (!txn.isReset) {
           total += txn.total;
         }
       }
       setState(() {
-        _transactions = transactions;
+        _transactions = filteredTransactions;
         _totalDebt = total;
         _isLoading = false;
       });
@@ -173,6 +208,44 @@ class _CustomerTransactionPageState extends State<CustomerTransactionPage> {
     }
   }
 
+  Future<void> _showDateRangePicker() async {
+    final DateTimeRange? picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      initialDateRange:
+          _startDate != null && _endDate != null
+              ? DateTimeRange(start: _startDate!, end: _endDate!)
+              : null,
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(
+              primary: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() {
+        _startDate = picked.start;
+        _endDate = picked.end;
+      });
+      _loadTransactions();
+    }
+  }
+
+  void _clearDateFilter() {
+    setState(() {
+      _startDate = null;
+      _endDate = null;
+    });
+    _loadTransactions();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -245,19 +318,7 @@ class _CustomerTransactionPageState extends State<CustomerTransactionPage> {
                               child:
                                   _transactions.isEmpty
                                       ? _buildEmptyState()
-                                      : ListView.builder(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 16,
-                                        ),
-                                        itemCount: _transactions.length,
-                                        itemBuilder: (context, index) {
-                                          final transaction =
-                                              _transactions[index];
-                                          return _buildTransactionCard(
-                                            transaction,
-                                          );
-                                        },
-                                      ),
+                                      : _buildGroupedTransactionsList(),
                             ),
                           ],
                         ),
@@ -320,9 +381,71 @@ class _CustomerTransactionPageState extends State<CustomerTransactionPage> {
                       ),
                     ],
                   ),
+                if (_startDate != null && _endDate != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.date_range,
+                          size: 14,
+                          color: Colors.grey[600],
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${_displayDateFormat.format(_startDate!)} - ${_displayDateFormat.format(_endDate!)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context).colorScheme.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),
+          // Date filter button
+          IconButton(
+            onPressed: _showDateRangePicker,
+            icon: Icon(
+              _startDate != null && _endDate != null
+                  ? Icons.filter_alt
+                  : Icons.filter_alt_outlined,
+            ),
+            style: IconButton.styleFrom(
+              backgroundColor:
+                  _startDate != null && _endDate != null
+                      ? Theme.of(
+                        context,
+                      ).colorScheme.primary.withValues(alpha: 0.1)
+                      : Colors.white,
+              foregroundColor:
+                  _startDate != null && _endDate != null
+                      ? Theme.of(context).colorScheme.primary
+                      : Colors.grey[700],
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            tooltip: 'Filter Tanggal',
+          ),
+          if (_startDate != null && _endDate != null) ...[
+            const SizedBox(width: 8),
+            IconButton(
+              onPressed: _clearDateFilter,
+              icon: const Icon(Icons.clear),
+              style: IconButton.styleFrom(
+                backgroundColor: Colors.red[50],
+                foregroundColor: Colors.red[700],
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              tooltip: 'Hapus Filter',
+            ),
+          ],
         ],
       ),
     );
@@ -393,6 +516,177 @@ class _CustomerTransactionPageState extends State<CustomerTransactionPage> {
     );
   }
 
+  /// Group transactions by date (yyyy-MM-dd)
+  Map<String, List<Transaction>> _groupTransactionsByDate() {
+    final Map<String, List<Transaction>> grouped = {};
+    final dateOnlyFormat = DateFormat('yyyy-MM-dd');
+
+    for (var transaction in _transactions) {
+      final dateKey = dateOnlyFormat.format(transaction.takenAt);
+      if (!grouped.containsKey(dateKey)) {
+        grouped[dateKey] = [];
+      }
+      grouped[dateKey]!.add(transaction);
+    }
+
+    return grouped;
+  }
+
+  Widget _buildGroupedTransactionsList() {
+    final groupedTransactions = _groupTransactionsByDate();
+    final sortedDates =
+        groupedTransactions.keys.toList()
+          ..sort((a, b) => b.compareTo(a)); // Sort descending (newest first)
+
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      itemCount: sortedDates.length,
+      itemBuilder: (context, dateIndex) {
+        final dateKey = sortedDates[dateIndex];
+        final transactions = groupedTransactions[dateKey]!;
+        final firstTransaction = transactions.first;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Date header
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Theme.of(context).colorScheme.primary,
+                          Theme.of(context).colorScheme.secondary,
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.primary.withValues(alpha: 0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.calendar_today,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          DateFormat(
+                            'EEEE, dd MMMM yyyy',
+                            'id_ID',
+                          ).format(firstTransaction.takenAt),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      '${transactions.length} transaksi',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey[700],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Single card containing all transactions for this date
+            Card(
+              margin: const EdgeInsets.only(bottom: 16),
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: Colors.grey[300]!, width: 1),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children:
+                      transactions.asMap().entries.map((entry) {
+                        final index = entry.key;
+                        final transaction = entry.value;
+                        final isLast = index == transactions.length - 1;
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildTransactionSection(transaction),
+                            if (!isLast)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Divider(
+                                        color: Colors.grey[300],
+                                        thickness: 1,
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                      ),
+                                      child: Icon(
+                                        Icons.fiber_manual_record,
+                                        size: 8,
+                                        color: Colors.grey[400],
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Divider(
+                                        color: Colors.grey[300],
+                                        thickness: 1,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        );
+                      }).toList(),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _buildEmptyState() {
     return Center(
       child: Column(
@@ -429,246 +723,242 @@ class _CustomerTransactionPageState extends State<CustomerTransactionPage> {
     );
   }
 
-  Widget _buildTransactionCard(Transaction transaction) {
+  Widget _buildTransactionSection(Transaction transaction) {
     final isReset = transaction.isReset;
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Colors.grey[200]!),
-      ),
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          leading: Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors:
-                    isReset
-                        ? [Colors.green[400]!, Colors.teal[400]!]
-                        : [Colors.orange[400]!, Colors.deepOrange[400]!],
-              ),
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: (isReset ? Colors.green : Colors.orange).withValues(
-                    alpha: 0.3,
-                  ),
-                  blurRadius: 8,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Icon(
-              isReset ? Icons.check_circle : Icons.shopping_cart,
-              color: Colors.white,
-              size: 24,
-            ),
-          ),
-          title: Text(
-            _dateFormat.format(transaction.takenAt),
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-          ),
-          subtitle: Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: isReset ? Colors.green[50] : Colors.orange[50],
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                isReset ? 'LUNAS' : 'Belum Lunas',
-                style: TextStyle(
-                  color: isReset ? Colors.green[700] : Colors.orange[700],
-                  fontWeight: FontWeight.w600,
-                  fontSize: 11,
-                ),
-              ),
-            ),
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Transaction items with subtle indicator
+        ...transaction.lines.asMap().entries.map((entry) {
+          final index = entry.key;
+          final line = entry.value;
+          final isFirstItem = index == 0;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                _currencyFormat.format(transaction.total),
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: isReset ? Colors.grey[600] : Colors.red[700],
-                  decoration: isReset ? TextDecoration.lineThrough : null,
-                ),
-              ),
-              if (!isReset) ...[
-                const SizedBox(width: 8),
-                IconButton(
-                  onPressed: () => _editTransaction(transaction),
-                  icon: const Icon(Icons.edit_outlined),
-                  color: Colors.blue[600],
-                  tooltip: 'Edit',
-                  style: IconButton.styleFrom(
-                    backgroundColor: Colors.blue[50],
-                    padding: const EdgeInsets.all(8),
-                  ),
-                ),
-                const SizedBox(width: 4),
-                IconButton(
-                  onPressed: () => _payOffTransaction(transaction),
-                  icon: const Icon(Icons.check_circle_outline),
-                  color: Colors.green[600],
-                  tooltip: 'Lunasi',
-                  style: IconButton.styleFrom(
-                    backgroundColor: Colors.green[50],
-                    padding: const EdgeInsets.all(8),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.grey[50],
-                borderRadius: const BorderRadius.only(
-                  bottomLeft: Radius.circular(16),
-                  bottomRight: Radius.circular(16),
-                ),
-              ),
-              child: Column(
-                children: [
-                  ...transaction.lines.map((line) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.primary.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              '${line.quantity}x',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Theme.of(context).colorScheme.primary,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  line.productName ?? 'Produk',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                Row(
-                                  children: [
-                                    Text(
-                                      '${_currencyFormat.format(line.unitPrice)}${line.productUnit != null ? ' / ${line.productUnit}' : ''}',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey[600],
-                                      ),
-                                    ),
-                                    if (line.createdAt != null) ...[
-                                      Text(
-                                        ' • ',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey[600],
-                                        ),
-                                      ),
-                                      Icon(
-                                        Icons.access_time,
-                                        size: 12,
-                                        color: Colors.grey[600],
-                                      ),
-                                      const SizedBox(width: 2),
-                                      Text(
-                                        _shortDateFormat.format(
-                                          line.createdAt!,
-                                        ),
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.grey[600],
-                                        ),
-                                      ),
+              // Show transaction info only on first item
+              if (isFirstItem)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 4,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors:
+                                isReset
+                                    ? [Colors.green[400]!, Colors.teal[400]!]
+                                    : [
+                                      Colors.orange[400]!,
+                                      Colors.deepOrange[400]!,
                                     ],
-                                  ],
-                                ),
-                              ],
-                            ),
                           ),
-                          Text(
-                            _currencyFormat.format(line.lineTotal),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
-                            ),
-                          ),
-                        ],
+                          borderRadius: BorderRadius.circular(2),
+                        ),
                       ),
-                    );
-                  }),
-                  if (!isReset) ...[
-                    const SizedBox(height: 12),
-                    const Divider(),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: () => _editTransaction(transaction),
-                            icon: const Icon(Icons.edit_outlined),
-                            label: const Text('Edit Transaksi'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue[600],
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              elevation: 0,
-                            ),
+                      const SizedBox(width: 8),
+                      Icon(
+                        isReset ? Icons.check_circle : Icons.shopping_cart,
+                        size: 16,
+                        color: isReset ? Colors.green[600] : Colors.orange[600],
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          _timeOnlyFormat.format(transaction.takenAt),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color:
+                                isReset
+                                    ? Colors.green[700]
+                                    : Colors.orange[700],
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: () => _payOffTransaction(transaction),
-                            icon: const Icon(Icons.check_circle_outline),
-                            label: const Text('Lunasi'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green[600],
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              elevation: 0,
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color:
+                              isReset ? Colors.green[100] : Colors.orange[100],
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          _currencyFormat.format(transaction.total),
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color:
+                                isReset
+                                    ? Colors.green[700]
+                                    : Colors.orange[700],
+                            decoration:
+                                isReset ? TextDecoration.lineThrough : null,
+                          ),
+                        ),
+                      ),
+                      // Action buttons as icons
+                      if (!isReset) ...[
+                        const SizedBox(width: 4),
+                        IconButton(
+                          onPressed: () => _editTransaction(transaction),
+                          icon: const Icon(Icons.edit_outlined),
+                          iconSize: 18,
+                          color: Colors.blue[700],
+                          padding: const EdgeInsets.all(4),
+                          constraints: const BoxConstraints(
+                            minWidth: 32,
+                            minHeight: 32,
+                          ),
+                          style: IconButton.styleFrom(
+                            backgroundColor: Colors.blue[50],
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6),
                             ),
                           ),
+                          tooltip: 'Edit',
+                        ),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          onPressed: () => _payOffTransaction(transaction),
+                          icon: const Icon(Icons.check_circle_outline),
+                          iconSize: 18,
+                          color: Colors.green[700],
+                          padding: const EdgeInsets.all(4),
+                          constraints: const BoxConstraints(
+                            minWidth: 32,
+                            minHeight: 32,
+                          ),
+                          style: IconButton.styleFrom(
+                            backgroundColor: Colors.green[50],
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                          ),
+                          tooltip: 'Lunasi',
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              // Item row with colored indicator
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Colored bar indicator
+                  Container(
+                    width: 4,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors:
+                            isReset
+                                ? [Colors.green[300]!, Colors.green[100]!]
+                                : [Colors.orange[300]!, Colors.orange[100]!],
+                      ),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color:
+                          isReset
+                              ? Colors.green[100]
+                              : Theme.of(
+                                context,
+                              ).colorScheme.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '${line.quantity}x',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color:
+                            isReset
+                                ? Colors.green[700]
+                                : Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          line.productName ?? 'Produk',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            Text(
+                              '${_currencyFormat.format(line.unitPrice)}${line.productUnit != null ? ' / ${line.productUnit}' : ''}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            if (line.createdAt != null) ...[
+                              Text(
+                                ' • ',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              Icon(
+                                Icons.access_time,
+                                size: 12,
+                                color: Colors.grey[600],
+                              ),
+                              const SizedBox(width: 2),
+                              Text(
+                                _shortDateFormat.format(line.createdAt!),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ],
                     ),
-                  ],
+                  ),
+                  Text(
+                    _currencyFormat.format(line.lineTotal),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
                 ],
               ),
-            ),
-          ],
-        ),
-      ),
+              const SizedBox(height: 8),
+            ],
+          );
+        }),
+      ],
     );
   }
 }

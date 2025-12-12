@@ -104,13 +104,46 @@ class _CategoryFormPageState extends State<CategoryFormPage> {
     setState(() => _isLoading = true);
 
     try {
+      final categoryName = _nameController.text.trim();
+
+      // Check if category with same name already exists
+      final existingCategories = await _db.getAllCategories();
+      final isDuplicate = existingCategories.any((category) {
+        // When editing, allow the same name if it's the same category
+        if (widget.category != null && category.id == widget.category!.id) {
+          return false;
+        }
+        // Check for case-insensitive duplicate names
+        return category.name.toLowerCase() == categoryName.toLowerCase();
+      });
+
+      if (isDuplicate) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Kategori dengan nama "$categoryName" sudah ada. Silakan gunakan nama lain.',
+              ),
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 3),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          );
+          setState(() => _isLoading = false);
+        }
+        return;
+      }
+
       // Convert color to hex string properly
       final colorHex = _selectedColor.value.toRadixString(16).padLeft(8, '0');
       final rgbHex = colorHex.substring(2); // Remove alpha channel
 
       final newCategory = Category(
         id: widget.category?.id,
-        name: _nameController.text.trim(),
+        name: categoryName,
         iconCode: _selectedIcon.codePoint,
         color: '#$rgbHex',
       );
@@ -131,6 +164,7 @@ class _CategoryFormPageState extends State<CategoryFormPage> {
                   : 'Kategori berhasil diperbarui',
             ),
             behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.green,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10),
             ),
@@ -139,11 +173,22 @@ class _CategoryFormPageState extends State<CategoryFormPage> {
       }
     } catch (e) {
       if (mounted) {
+        // Parse the error message to provide better feedback
+        String errorMessage = 'Error: $e';
+        if (e.toString().contains('UNIQUE constraint failed')) {
+          errorMessage =
+              'Kategori dengan nama ini sudah ada. Silakan gunakan nama lain.';
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: $e'),
+            content: Text(errorMessage),
             behavior: SnackBarBehavior.floating,
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
         );
       }

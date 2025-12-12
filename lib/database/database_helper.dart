@@ -14,7 +14,7 @@ class DatabaseHelper {
 
   Future<sqflite.Database> get database async {
     if (_database != null) return _database!;
-    _database = await _initDB('piutang.db');
+    _database = await _initDB('piutang1.db');
     return _database!;
   }
 
@@ -225,6 +225,29 @@ class DatabaseHelper {
       WHERE p.is_active = 1
       ORDER BY p.name ASC
     ''');
+    return result.map((map) => Product.fromMap(map)).toList();
+  }
+
+  Future<List<Product>> getProductsByCategory(int? categoryId) async {
+    final db = await database;
+
+    if (categoryId == null) {
+      // Return all products if no category is specified
+      return getAllProducts();
+    }
+
+    final result = await db.rawQuery(
+      '''
+      SELECT 
+        p.*,
+        c.name as category_name
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      WHERE p.is_active = 1 AND p.category_id = ?
+      ORDER BY p.name ASC
+    ''',
+      [categoryId],
+    );
     return result.map((map) => Product.fromMap(map)).toList();
   }
 
@@ -457,6 +480,27 @@ class DatabaseHelper {
     });
   }
 
+  Future<void> updateTransactionLineQuantity(
+    int lineId,
+    int newQuantity,
+    double unitPrice,
+  ) async {
+    final db = await database;
+
+    final newLineTotal = newQuantity * unitPrice;
+
+    await db.update(
+      'transaction_lines',
+      {
+        'quantity': newQuantity,
+        'line_total': newLineTotal,
+        'created_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [lineId],
+    );
+  }
+
   Future<int> resetCustomerDebt(int customerId) async {
     final db = await database;
 
@@ -469,10 +513,76 @@ class DatabaseHelper {
     );
   }
 
+  // Get all transactions with customer details for PDF export
+  Future<Map<String, dynamic>> getAllTransactionsForPdf() async {
+    final db = await database;
+
+    // Get all customers with their transactions
+    final customerMaps = await db.rawQuery('''
+      SELECT DISTINCT c.id, c.name, c.phone
+      FROM customers c
+      INNER JOIN transactions t ON c.id = t.customer_id
+      WHERE c.is_active = 1
+      ORDER BY c.name ASC
+    ''');
+
+    List<Map<String, dynamic>> customersWithTransactions = [];
+
+    for (var customerMap in customerMaps) {
+      final customerId = customerMap['id'] as int;
+
+      // Get all transactions for this customer
+      final transactionMaps = await db.query(
+        'transactions',
+        where: 'customer_id = ?',
+        whereArgs: [customerId],
+        orderBy: 'taken_at DESC',
+      );
+
+      List<Map<String, dynamic>> transactions = [];
+
+      for (var txnMap in transactionMaps) {
+        // Get lines for this transaction with product details
+        final lineMaps = await db.rawQuery(
+          '''
+          SELECT 
+            tl.*,
+            p.name as product_name,
+            p.unit as product_unit
+          FROM transaction_lines tl
+          JOIN products p ON tl.product_id = p.id
+          WHERE tl.transaction_id = ?
+          ORDER BY tl.created_at ASC, tl.id ASC
+        ''',
+          [txnMap['id']],
+        );
+
+        transactions.add({'transaction': txnMap, 'lines': lineMaps});
+      }
+
+      customersWithTransactions.add({
+        'customer': customerMap,
+        'transactions': transactions,
+      });
+    }
+
+    return {
+      'customers': customersWithTransactions,
+      'generated_at': DateTime.now().toIso8601String(),
+    };
+  }
+
   // ==================== UTILITY ====================
 
+  Future<String> getDatabasePath() async {
+    final dbPath = await sqflite.getDatabasesPath();
+    return join(dbPath, 'piutang1.db');
+  }
+
   Future<void> close() async {
-    final db = await database;
-    await db.close();
+    if (_database != null) {
+      await _database!.close();
+      _database = null; // Reset singleton to allow fresh connection
+    }
   }
 }

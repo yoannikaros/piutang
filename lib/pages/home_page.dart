@@ -4,6 +4,7 @@ import '../database/database_helper.dart';
 import '../models/customer.dart';
 import 'customer_transaction_page.dart';
 import 'management_menu_page.dart';
+import 'settings_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -231,6 +232,25 @@ class _HomePageState extends State<HomePage> {
                       ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
                     ),
                   ],
+                ),
+              ),
+              // Settings Icon Button
+              IconButton(
+                onPressed: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SettingsPage(),
+                    ),
+                  );
+                  _loadCustomers();
+                },
+                icon: const Icon(Icons.settings),
+                iconSize: 28,
+                tooltip: 'Pengaturan',
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.grey[100],
+                  padding: const EdgeInsets.all(12),
                 ),
               ),
             ],

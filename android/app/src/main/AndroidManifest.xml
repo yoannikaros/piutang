@@ -5,8 +5,14 @@
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     
+    <!-- 
+        Storage permissions removed - not needed when using Storage Access Framework (SAF)
+        via file_picker plugin. SAF allows file access without requiring storage permissions.
+        This complies with Play Store policies which restrict MANAGE_EXTERNAL_STORAGE.
+    -->
+    
     <application
-        android:label="piutang"
+        android:label="Hutang Piutang"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
